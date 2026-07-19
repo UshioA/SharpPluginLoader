@@ -45,6 +45,41 @@ ImGui_ImplDXGI_ColorSpace infer_imgui_color_space(DXGI_FORMAT back_buffer_format
     }
 }
 
+bool is_mouse_input_message(UINT msg) {
+    switch (msg) {
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONUP:
+    case WM_XBUTTONDBLCLK:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+void set_imgui_mouse_pos_scale(const MtSize& viewport_size, const MtSize& window_size) {
+    const float scale_x = window_size.x
+        ? static_cast<float>(viewport_size.x) / static_cast<float>(window_size.x)
+        : 1.0f;
+    const float scale_y = window_size.y
+        ? static_cast<float>(viewport_size.y) / static_cast<float>(window_size.y)
+        : 1.0f;
+
+    dlog::debug("Scaling ImGui mouse coordinates by {}x{}", scale_x, scale_y);
+    ImGui_ImplWin32_SetMousePosScale(scale_x, scale_y);
+}
+
 }
 
 void D3DModule::initialize(CoreClr* coreclr) {
@@ -616,6 +651,8 @@ void D3DModule::d3d12_initialize_imgui(IDXGISwapChain* swap_chain) {
         return;
     }
 
+    set_imgui_mouse_pos_scale(viewport_size, window_size);
+
     ImGui_ImplWin32_EnableDpiAwareness();
 
     if (!ImGui_ImplDX12_Init(m_d3d12_device, desc.BufferCount,
@@ -684,6 +721,8 @@ void D3DModule::d3d11_initialize_imgui(IDXGISwapChain* swap_chain) {
         dlog::error("Failed to initialize ImGui Win32");
         return;
     }
+
+    set_imgui_mouse_pos_scale(viewport_size, window_size);
 
     if (!ImGui_ImplDX11_Init(m_d3d11_device, m_d3d11_device_context, imgui_color_space)) {
         dlog::error("Failed to initialize ImGui D3D11");
@@ -1027,7 +1066,19 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 LRESULT D3DModule::my_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     const auto self = NativePluginFramework::get_module<D3DModule>();
     if (self->m_is_initialized) {
-        ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
+        const auto imgui_result = ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
+        const auto io = igGetIO();
+        const bool capture_mouse = io->WantCaptureMouse || io->MouseDrawCursor;
+
+        if (imgui_result != 0 && (msg != WM_SETCURSOR || capture_mouse)) {
+            return imgui_result;
+        }
+
+        // The game polls part of its mouse state separately, but swallowing
+        // captured window messages prevents its WndProc from also acting on them.
+        if (capture_mouse && is_mouse_input_message(msg)) {
+            return 0;
+        }
     }
     return CallWindowProc(self->m_game_window_proc, hwnd, msg, wparam, lparam);
 }

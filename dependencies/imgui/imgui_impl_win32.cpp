@@ -107,6 +107,7 @@ struct ImGui_ImplWin32_Data
     INT64                       Time;
     INT64                       TicksPerSecond;
     ImGuiMouseCursor            LastMouseCursor;
+    ImVec2                      MousePosScale;
     UINT32                      KeyboardCodePage;
     bool                        WantUpdateMonitors;
 
@@ -166,6 +167,7 @@ static bool ImGui_ImplWin32_InitEx(void* hwnd, bool platform_has_own_dc)
     bd->TicksPerSecond = perf_frequency;
     bd->Time = perf_counter;
     bd->LastMouseCursor = ImGuiMouseCursor_COUNT;
+    bd->MousePosScale = ImVec2(1.0f, 1.0f);
     ImGui_ImplWin32_UpdateKeyboardCodePage();
 
     // Our mouse update function expect PlatformHandle to be filled for the main viewport
@@ -196,6 +198,14 @@ static bool ImGui_ImplWin32_InitEx(void* hwnd, bool platform_has_own_dc)
 #endif // IMGUI_IMPL_WIN32_DISABLE_GAMEPAD
 
     return true;
+}
+
+IMGUI_IMPL_API void ImGui_ImplWin32_SetMousePosScale(float scale_x, float scale_y)
+{
+    ImGui_ImplWin32_Data* bd = ImGui_ImplWin32_GetBackendData();
+    IM_ASSERT(bd != nullptr && "Did you call ImGui_ImplWin32_Init()?");
+    bd->MousePosScale.x = scale_x > 0.0f ? scale_x : 1.0f;
+    bd->MousePosScale.y = scale_y > 0.0f ? scale_y : 1.0f;
 }
 
 IMGUI_IMPL_API bool     ImGui_ImplWin32_Init(void* hwnd)
@@ -319,7 +329,11 @@ static void ImGui_ImplWin32_UpdateMouseData()
         {
             POINT pos = { (int)io.MousePos.x, (int)io.MousePos.y };
             if ((io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0)
+            {
+                pos.x = (LONG)(io.MousePos.x / bd->MousePosScale.x);
+                pos.y = (LONG)(io.MousePos.y / bd->MousePosScale.y);
                 ::ClientToScreen(focused_window, &pos);
+            }
             ::SetCursorPos(pos.x, pos.y);
         }
 
@@ -333,8 +347,16 @@ static void ImGui_ImplWin32_UpdateMouseData()
             // (This is the position you can get with ::GetCursorPos() or WM_MOUSEMOVE + ::ClientToScreen(). In theory adding viewport->Pos to a client position would also be the same.)
             POINT mouse_pos = mouse_screen_pos;
             if (!(io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
+            {
                 ::ScreenToClient(bd->hWnd, &mouse_pos);
-            ImGuiIO_AddMousePosEvent(&io, (float)mouse_pos.x, (float)mouse_pos.y);
+                ImGuiIO_AddMousePosEvent(&io,
+                    (float)mouse_pos.x * bd->MousePosScale.x,
+                    (float)mouse_pos.y * bd->MousePosScale.y);
+            }
+            else
+            {
+                ImGuiIO_AddMousePosEvent(&io, (float)mouse_pos.x, (float)mouse_pos.y);
+            }
         }
     }
 
@@ -468,7 +490,9 @@ void    ImGui_ImplWin32_NewFrame()
 
     // Update OS mouse cursor with the cursor requested by imgui
     ImGuiMouseCursor mouse_cursor = io.MouseDrawCursor ? ImGuiMouseCursor_None : igGetMouseCursor();
-    if (bd->LastMouseCursor != mouse_cursor)
+    // The host game may restore its cursor between frames, so keep hiding it
+    // while Dear ImGui is drawing the software cursor.
+    if (bd->LastMouseCursor != mouse_cursor || io.MouseDrawCursor)
     {
         bd->LastMouseCursor = mouse_cursor;
         ImGui_ImplWin32_UpdateMouseCursor();
@@ -674,7 +698,16 @@ IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARA
         if (msg == WM_NCMOUSEMOVE && !want_absolute_pos) // WM_NCMOUSEMOVE are absolute coordinates.
             ::ScreenToClient(hwnd, &mouse_pos);
         ImGuiIO_AddMouseSourceEvent(&io, mouse_source);
-        ImGuiIO_AddMousePosEvent(&io, (float)mouse_pos.x, (float)mouse_pos.y);
+        if (!want_absolute_pos)
+        {
+            ImGuiIO_AddMousePosEvent(&io,
+                (float)mouse_pos.x * bd->MousePosScale.x,
+                (float)mouse_pos.y * bd->MousePosScale.y);
+        }
+        else
+        {
+            ImGuiIO_AddMousePosEvent(&io, (float)mouse_pos.x, (float)mouse_pos.y);
+        }
         break;
     }
     case WM_MOUSELEAVE:
