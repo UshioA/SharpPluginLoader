@@ -23,8 +23,8 @@ jobs:
       # Path to the solution file relative to the root of the project.
       SOLUTION_FILE_PATH: ./mhw-cs-plugin-loader.slnx
 
-      # Allow vcpkg to install packages from the NuGet binary cache.
-      # Skipped for PRs from forks, since secrets aren't available there
+      # Use the upstream NuGet cache when its credentials are available.
+      # Forks fall back to the repository-scoped GitHub Actions cache.
       USERNAME: Fexty12573
       VCPKG_EXE: vcpkg
       FEED_URL: https://nuget.pkg.github.com/Fexty12573/index.json
@@ -32,7 +32,7 @@ jobs:
         ${{ github.repository == 'Fexty12573/SharpPluginLoader'
             && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
             && 'clear;nuget,https://nuget.pkg.github.com/Fexty12573/index.json,readwrite'
-            || 'clear;default,readwrite' }}
+            || 'clear;x-gha,readwrite' }}
 
     steps:
       - name: Export GitHub Actions cache environment variables
