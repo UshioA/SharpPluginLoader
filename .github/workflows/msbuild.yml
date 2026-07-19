@@ -32,7 +32,7 @@ jobs:
         ${{ github.repository == 'Fexty12573/SharpPluginLoader'
             && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
             && 'clear;nuget,https://nuget.pkg.github.com/Fexty12573/index.json,readwrite'
-            || 'clear;x-gha,readwrite' }}
+            || format('clear;files,{0}/vcpkg-binary-cache,readwrite', github.workspace) }}
 
     steps:
       - name: Export GitHub Actions cache environment variables
@@ -59,6 +59,15 @@ jobs:
       - name: Integrate vcpkg
         run: |
           vcpkg integrate install
+
+      - name: Restore fork vcpkg binary cache
+        if: github.repository != 'Fexty12573/SharpPluginLoader'
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'x64-windows-v143-static-md.cmake') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
 
       - name: Add vcpkg nuget sources
         if: >-

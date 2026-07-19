@@ -27,25 +27,18 @@
 
 namespace {
 
-ImGui_ImplDXGI_ColorSpace get_imgui_color_space(IDXGISwapChain* swap_chain) {
-    Microsoft::WRL::ComPtr<IDXGISwapChain3> swap_chain3;
-    if (FAILED(swap_chain->QueryInterface(IID_PPV_ARGS(swap_chain3.GetAddressOf())))) {
-        dlog::debug("Failed to query IDXGISwapChain3, treating ImGui output as SDR");
-        return ImGui_ImplDXGI_ColorSpace_SDR;
-    }
-
-    const auto color_space = swap_chain3->GetColorSpace1();
-    dlog::debug("DXGI swap chain color space: {}", static_cast<u32>(color_space));
-
-    switch (color_space) {
-    case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709:
+ImGui_ImplDXGI_ColorSpace get_imgui_color_space(DXGI_FORMAT back_buffer_format) {
+    switch (back_buffer_format) {
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        dlog::debug("Using scRGB color management for ImGui");
         return ImGui_ImplDXGI_ColorSpace_scRGB;
 
-    case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:
-    case DXGI_COLOR_SPACE_RGB_STUDIO_G2084_NONE_P2020:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+        dlog::debug("Using HDR10 color management for ImGui");
         return ImGui_ImplDXGI_ColorSpace_HDR10;
 
     default:
+        dlog::debug("Using SDR color management for ImGui");
         return ImGui_ImplDXGI_ColorSpace_SDR;
     }
 }
@@ -512,8 +505,6 @@ void D3DModule::d3d12_initialize_imgui(IDXGISwapChain* swap_chain) {
         return;
     }
 
-    const auto imgui_color_space = get_imgui_color_space(swap_chain);
-
     RECT client_rect;
     GetClientRect(desc.OutputWindow, &client_rect);
 
@@ -616,6 +607,8 @@ void D3DModule::d3d12_initialize_imgui(IDXGISwapChain* swap_chain) {
         rtv_handle.ptr += rtv_descriptor_size;
     }
 
+    const auto imgui_color_space = get_imgui_color_space(back_buffer_format);
+
     if (!ImGui_ImplWin32_Init(m_game_window)) {
         dlog::error("Failed to initialize ImGui Win32");
         return;
@@ -660,7 +653,15 @@ void D3DModule::d3d11_initialize_imgui(IDXGISwapChain* swap_chain) {
         return;
     }
 
-    const auto imgui_color_space = get_imgui_color_space(swap_chain);
+    DXGI_FORMAT back_buffer_format = desc.BufferDesc.Format;
+    ComPtr<ID3D11Texture2D> back_buffer;
+    if (SUCCEEDED(swap_chain->GetBuffer(0, IID_PPV_ARGS(back_buffer.GetAddressOf())))) {
+        D3D11_TEXTURE2D_DESC back_buffer_desc;
+        back_buffer->GetDesc(&back_buffer_desc);
+        back_buffer_format = back_buffer_desc.Format;
+    }
+
+    const auto imgui_color_space = get_imgui_color_space(back_buffer_format);
 
     RECT client_rect;
     GetClientRect(desc.OutputWindow, &client_rect);
