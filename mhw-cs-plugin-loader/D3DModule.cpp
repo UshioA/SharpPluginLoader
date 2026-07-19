@@ -25,6 +25,33 @@
 // DirectXTK12 References SerializeRootSignature so we need to link this
 #pragma comment(lib, "d3d12.lib")
 
+namespace {
+
+ImGui_ImplDXGI_ColorSpace get_imgui_color_space(IDXGISwapChain* swap_chain) {
+    Microsoft::WRL::ComPtr<IDXGISwapChain3> swap_chain3;
+    if (FAILED(swap_chain->QueryInterface(IID_PPV_ARGS(swap_chain3.GetAddressOf())))) {
+        dlog::debug("Failed to query IDXGISwapChain3, treating ImGui output as SDR");
+        return ImGui_ImplDXGI_ColorSpace_SDR;
+    }
+
+    const auto color_space = swap_chain3->GetColorSpace1();
+    dlog::debug("DXGI swap chain color space: {}", static_cast<u32>(color_space));
+
+    switch (color_space) {
+    case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709:
+        return ImGui_ImplDXGI_ColorSpace_scRGB;
+
+    case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:
+    case DXGI_COLOR_SPACE_RGB_STUDIO_G2084_NONE_P2020:
+        return ImGui_ImplDXGI_ColorSpace_HDR10;
+
+    default:
+        return ImGui_ImplDXGI_ColorSpace_SDR;
+    }
+}
+
+}
+
 void D3DModule::initialize(CoreClr* coreclr) {
     if (!preloader::LoaderConfig::get().get_imgui_rendering_enabled()) {
         dlog::debug("Skipping D3D module initialization because imgui rendering is disabled");
@@ -485,6 +512,8 @@ void D3DModule::d3d12_initialize_imgui(IDXGISwapChain* swap_chain) {
         return;
     }
 
+    const auto imgui_color_space = get_imgui_color_space(swap_chain);
+
     RECT client_rect;
     GetClientRect(desc.OutputWindow, &client_rect);
 
@@ -597,7 +626,8 @@ void D3DModule::d3d12_initialize_imgui(IDXGISwapChain* swap_chain) {
     if (!ImGui_ImplDX12_Init(m_d3d12_device, desc.BufferCount,
         back_buffer_format, m_d3d12_srv_heap.Get(),
         m_d3d12_srv_heap->GetCPUDescriptorHandleForHeapStart(),
-        m_d3d12_srv_heap->GetGPUDescriptorHandleForHeapStart())) {
+        m_d3d12_srv_heap->GetGPUDescriptorHandleForHeapStart(),
+        imgui_color_space)) {
         dlog::error("Failed to initialize ImGui D3D12");
         return;
     }
@@ -630,6 +660,8 @@ void D3DModule::d3d11_initialize_imgui(IDXGISwapChain* swap_chain) {
         return;
     }
 
+    const auto imgui_color_space = get_imgui_color_space(swap_chain);
+
     RECT client_rect;
     GetClientRect(desc.OutputWindow, &client_rect);
 
@@ -650,7 +682,7 @@ void D3DModule::d3d11_initialize_imgui(IDXGISwapChain* swap_chain) {
         return;
     }
 
-    if (!ImGui_ImplDX11_Init(m_d3d11_device, m_d3d11_device_context)) {
+    if (!ImGui_ImplDX11_Init(m_d3d11_device, m_d3d11_device_context, imgui_color_space)) {
         dlog::error("Failed to initialize ImGui D3D11");
         return;
     }
