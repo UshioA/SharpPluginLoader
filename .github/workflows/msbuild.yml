@@ -29,7 +29,8 @@ jobs:
       VCPKG_EXE: vcpkg
       FEED_URL: https://nuget.pkg.github.com/Fexty12573/index.json
       VCPKG_BINARY_SOURCES: >-
-        ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        ${{ github.repository == 'Fexty12573/SharpPluginLoader'
+            && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
             && 'clear;nuget,https://nuget.pkg.github.com/Fexty12573/index.json,readwrite'
             || 'clear;default,readwrite' }}
 
@@ -60,7 +61,9 @@ jobs:
           vcpkg integrate install
 
       - name: Add vcpkg nuget sources
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: >-
+          github.repository == 'Fexty12573/SharpPluginLoader'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         shell: pwsh
         run: |
           .$(${{ env.VCPKG_EXE }} fetch nuget) `
