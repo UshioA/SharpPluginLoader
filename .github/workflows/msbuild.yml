@@ -23,15 +23,16 @@ jobs:
       # Path to the solution file relative to the root of the project.
       SOLUTION_FILE_PATH: ./mhw-cs-plugin-loader.slnx
 
-      # Allow vcpkg to install packages from the NuGet binary cache.
-      # Skipped for PRs from forks, since secrets aren't available there
+      # Use the upstream NuGet cache when its credentials are available.
+      # Forks fall back to a repository-scoped file cache.
       USERNAME: Fexty12573
       VCPKG_EXE: vcpkg
       FEED_URL: https://nuget.pkg.github.com/Fexty12573/index.json
       VCPKG_BINARY_SOURCES: >-
-        ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        ${{ github.repository == 'Fexty12573/SharpPluginLoader'
+            && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
             && 'clear;nuget,https://nuget.pkg.github.com/Fexty12573/index.json,readwrite'
-            || 'clear;default,readwrite' }}
+            || format('clear;files,{0}/vcpkg-binary-cache,readwrite', github.workspace) }}
 
     steps:
       - name: Export GitHub Actions cache environment variables
@@ -59,8 +60,19 @@ jobs:
         run: |
           vcpkg integrate install
 
+      - name: Restore fork vcpkg binary cache
+        if: github.repository != 'Fexty12573/SharpPluginLoader'
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'x64-windows-v143-static-md.cmake') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Add vcpkg nuget sources
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: >-
+          github.repository == 'Fexty12573/SharpPluginLoader'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         shell: pwsh
         run: |
           .$(${{ env.VCPKG_EXE }} fetch nuget) `
