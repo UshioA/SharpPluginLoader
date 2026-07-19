@@ -25,6 +25,8 @@ IMGUI_IMPL_API bool     ImGui_ImplWin32_Init(void* hwnd);
 IMGUI_IMPL_API bool     ImGui_ImplWin32_InitForOpenGL(void* hwnd);
 IMGUI_IMPL_API void     ImGui_ImplWin32_Shutdown();
 IMGUI_IMPL_API void     ImGui_ImplWin32_NewFrame();
+// Scale client-area mouse coordinates when the render target size differs from the window size.
+IMGUI_IMPL_API void     ImGui_ImplWin32_SetMousePosScale(float scale_x, float scale_y);
 
 // Win32 message handler your application need to call.
 // - Intentionally commented out in a '#if 0' block to avoid dragging dependencies on <windows.h> from this helper.

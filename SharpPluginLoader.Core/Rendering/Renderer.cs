@@ -228,17 +228,11 @@ namespace SharpPluginLoader.Core.Rendering
             }
 
             _viewportSize = new Vector2(viewportSize.Width, viewportSize.Height);
-            _windowSize = new Vector2(windowSize.Width, windowSize.Height);
             Log.Debug($"""
                        Initializing Renderer with
                            Viewport Size: {viewportSize.Width}x{viewportSize.Height}
                            Window Size: {windowSize.Width}x{windowSize.Height}
                        """);
-
-            _mousePosScalingFactor = new Vector2(
-                _viewportSize.X / _windowSize.X,
-                _viewportSize.Y / _windowSize.Y
-            );
 
             if (ImGui.GetCurrentContext() != 0)
                 return ImGui.GetCurrentContext();
@@ -267,10 +261,10 @@ namespace SharpPluginLoader.Core.Rendering
             {
                 _mouseUpdateHook = Hook.Create<MouseUpdateDelegate>(sMhMouse.GetVirtualFunction(6), m =>
                 {
-                    var anyFocused = ImGui.IsWindowFocused(ImGuiFocusedFlags.AnyWindow);
-                    var anyHovered = ImGui.IsWindowHovered(ImGuiHoveredFlags.AnyWindow);
+                    var io = ImGui.GetIO();
+                    var captureMouse = io.WantCaptureMouse || io.MouseDrawCursor;
 
-                    if (anyFocused || anyHovered)
+                    if (captureMouse)
                     {
                         // Tell the game to not reset the cursor to the middle of the screen
                         // when Camera Mouse Controls are on.
@@ -280,34 +274,31 @@ namespace SharpPluginLoader.Core.Rendering
 
                     _mouseUpdateHook.Original(m);
 
-                    if (anyFocused || anyHovered)
+                    if (captureMouse || _lastUpdateCapturedMouse)
                     {
                         MemoryUtil.GetRef<int>(m + 0x17C) = 0; // Scroll wheel.
-                    }
-
-                    if (anyFocused)
-                    {
                         // Zero mouse delta used for camera movement.
                         MemoryUtil.GetRef<ulong>(m + 0xFC) = 0L; // dX(int), dY(int).
-                        MemoryUtil.GetRef<byte>(m + 0x108) = 0x0; // Combat.
-                        MemoryUtil.GetRef<byte>(m + 0x188) = 0x0; // Menu.
-                        MemoryUtil.GetRef<byte>(m + 0x194) = 0x0; // Dialogue.
-                        _lastUpdateHadFocus = true;
-                    }
-                    else if (anyHovered || _lastUpdateHadFocus)
-                    {
-                        // Block mouse1 clicks. Use _lastUpdateHadFocus to more consistently block
-                        // a click used to unfocus the ImGui window.
-                        ref byte m1Combat = ref MemoryUtil.GetRef<byte>(m + 0x108);
-                        ref byte m1Menu = ref MemoryUtil.GetRef<byte>(m + 0x188);
-                        ref byte m1Dialogue = ref MemoryUtil.GetRef<byte>(m + 0x194);
-                        if ((m1Combat & 0x1) == 0 && (m1Menu & 0x1) == 0 && (m1Dialogue & 0x1) == 0) // Wait for release.
+
+                        ref byte mouseCombat = ref MemoryUtil.GetRef<byte>(m + 0x108);
+                        ref byte mouseMenu = ref MemoryUtil.GetRef<byte>(m + 0x188);
+                        ref byte mouseDialogue = ref MemoryUtil.GetRef<byte>(m + 0x194);
+
+                        if (captureMouse)
                         {
-                            _lastUpdateHadFocus = false;
+                            _lastUpdateCapturedMouse = true;
                         }
-                        m1Combat &= 0xFE;
-                        m1Menu &= 0xFE;
-                        m1Dialogue &= 0xFE;
+                        else if ((mouseCombat & 0x1) == 0 &&
+                                 (mouseMenu & 0x1) == 0 &&
+                                 (mouseDialogue & 0x1) == 0)
+                        {
+                            // Keep blocking a click that started in ImGui until it is released.
+                            _lastUpdateCapturedMouse = false;
+                        }
+
+                        mouseCombat = 0;
+                        mouseMenu = 0;
+                        mouseDialogue = 0;
                     }
                 });
             }
@@ -405,8 +396,8 @@ namespace SharpPluginLoader.Core.Rendering
         {
             var io = ImGui.GetIO();
             var anyFocused = ImGui.IsWindowFocused(ImGuiFocusedFlags.AnyWindow);
-            var anyHovered = ImGui.IsWindowHovered(ImGuiHoveredFlags.AnyWindow);
-            io.MouseDrawCursor = anyFocused || anyHovered;
+            io.MouseDrawCursor = io.WantCaptureMouse || anyFocused ||
+                                 ImGui.IsWindowHovered(ImGuiHoveredFlags.AnyWindow);
             io.DisplaySize = _viewportSize;
 
             if (_showMenu)
@@ -520,6 +511,10 @@ namespace SharpPluginLoader.Core.Rendering
             InternalCalls.RenderNotifications();
             ImGui.PopStyleVar();
 
+            io.MouseDrawCursor = io.WantCaptureMouse ||
+                                 ImGui.IsWindowFocused(ImGuiFocusedFlags.AnyWindow) ||
+                                 ImGui.IsWindowHovered(ImGuiHoveredFlags.AnyWindow);
+
             ImGui.EndFrame();
             ImGui.Render();
 
@@ -628,29 +623,11 @@ namespace SharpPluginLoader.Core.Rendering
             style.Colors[(int)ImGuiCol.ModalWindowDimBg] = new Vector4(0.196078434586525f, 0.1764705926179886f, 0.5450980663299561f, 0.501960813999176f);
         }
 
-        private static nint GetCursorPositionHook(nint app, out Point pos)
-        {
-            var result = _getCursorPositionHook.Original(app, out pos);
-            _mousePos = new Vector2(pos.X, pos.Y);
-            if (ImGui.GetCurrentContext() == 0)
-                return result;
-
-            if (ImGui.GetIO().MouseDrawCursor)
-            {
-                pos.X = 0;
-                pos.Y = 0;
-            }
-
-            return result;
-        }
-
-        private delegate nint GetCursorPositionDelegate(nint app, out Point pos);
         private delegate void MouseUpdateDelegate(nint sMhMouse);
-        private static Hook<GetCursorPositionDelegate> _getCursorPositionHook = null!;
         private static Hook<MouseUpdateDelegate> _mouseUpdateHook = null!;
         private delegate void KeyboardUpdateDelegate(nint sMhKeyboard, nint kbState);
         private static Hook<KeyboardUpdateDelegate> _keyboardUpdateHook = null!;
-        private static bool _lastUpdateHadFocus = false;
+        private static bool _lastUpdateCapturedMouse = false;
         private static bool _lastUpdateHadKeyboard = false;
         private static Key? _waitForRelease = null;
         private static bool _showMenu = false;
@@ -664,9 +641,6 @@ namespace SharpPluginLoader.Core.Rendering
         private static RenderingOptionPointers _renderingOptionPointers;
         private static bool _optionsChanged = false;
         private static Vector2 _viewportSize;
-        private static Vector2 _windowSize;
-        private static Vector2 _mousePos;
-        private static Vector2 _mousePosScalingFactor;
         private static bool _fontsSubmitted = false;
 
         private static NativeArray<CustomFontNative> CustomFonts;
